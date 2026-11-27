@@ -9,6 +9,8 @@ This preview is a personal interpreter for a browser meeting. One listener runs 
 
 **Start here.** Download `meeting-interpreter.html`, open it in desktop Chrome, and select **Try a sample**. For spoken interpretation, use the desktop listener. Its one-hour local estimate for one listener is US$4.02. Your provider sets the final bill. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5) · [Browser file](standalone/meeting-interpreter.html) · [Illustrated setup guide](docs/get-started-with-enny.md)
 
+See what comes after the personal listener, including a free sound check with a meeting attendee. [Enny development roadmap](ROADMAP.md)
+
 **Inviting Enny for everyone.** The room-wide agent is a separate private test build. One organizer sets it up once and opens each meeting link in the agent browser. Other attendees need only their usual meeting client. The agent has an experimental live path for self-hosted Jitsi. Google Meet and Zoom meeting links have a free room check. For that private Jitsi test, one hour into one language has a US$3.00 local estimate for the whole room. The organizer’s OpenAI account pays after approval and connection. This download provides the personal listener. [Public roadmap](https://github.com/orgs/LateralThinkingMachine/projects/1/views/1) · [Selected feature issues](https://github.com/LateralThinkingMachine/enny-roadmap/issues?q=is%3Aissue%20label%3Aroadmap)
 
 ## Enny’s model choices in four panels
