@@ -58,14 +58,25 @@ static NSString *approvalError(NSString *duration, NSString *budget, NSInteger *
     return nil;
 }
 
+// Only these two paid --desktop-pipe statuses carry favorable receipts.
+enum { NoProviderWork = 20, AllConnectionsClosed = 21, ClosureUnconfirmed = 22 };
+
+static NSString *paidShutdownMessage(int receipt) {
+    if (receipt == NoProviderWork) return @"Local audio stopped. Enny did not start any OpenAI work.";
+    if (receipt == AllConnectionsClosed) return @"Local audio stopped. OpenAI confirmed that all admitted connections closed.";
+    return @"Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.";
+}
+
 @interface Session : NSObject
 @property (strong) NSTask *task;
 @property BOOL checking;
+@property BOOL launched;
 @property (strong) NSFileHandle *writer;
 @property (copy) NSString *directory;
 @property (nonatomic, copy) NSURL *entry;
 - (BOOL)startWithKey:(NSString *)key minutes:(NSInteger)minutes budgetCents:(NSInteger)cents;
 - (void)stop;
+- (int)paidShutdownReceipt;
 @end
 
 @implementation Session
@@ -109,6 +120,7 @@ static NSString *approvalError(NSString *duration, NSString *budget, NSInteger *
     self.task.standardOutput = NSFileHandle.fileHandleWithNullDevice;
     self.task.standardError = self.checking ? NSFileHandle.fileHandleWithStandardError : NSFileHandle.fileHandleWithNullDevice;
     if (![self.task launchAndReturnError:nil]) return NO;
+    self.launched = YES;
     uint32_t length = htonl((uint32_t)data.length);
     return [self.writer writeData:[NSData dataWithBytes:&length length:sizeof(length)] error:nil]
         && [self.writer writeData:data error:nil];
@@ -139,6 +151,13 @@ static NSString *approvalError(NSString *duration, NSString *budget, NSInteger *
     if (unlink(path.fileSystemRepresentation) != 0 || !self.task.running) return nil;
     _entry = [NSURL URLWithString:[NSString stringWithFormat:@"%@/#bootstrap=%@", origin, ticket]];
     return _entry;
+}
+
+- (int)paidShutdownReceipt {
+    if (!self.launched) return NoProviderWork;
+    if (self.task.running || self.task.terminationReason != NSTaskTerminationReasonExit) return ClosureUnconfirmed;
+    int code = self.task.terminationStatus;
+    return (code == NoProviderWork || code == AllConnectionsClosed) ? code : ClosureUnconfirmed;
 }
 
 - (void)stop {
@@ -182,6 +201,8 @@ static NSString *approvalError(NSString *duration, NSString *budget, NSInteger *
         NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.title = @"Enny · Real-time Interpreter";
+    NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+    if (build.length) self.window.subtitle = [NSString stringWithFormat:@"Build %@", build];
     self.window.delegate = self;
     self.window.releasedWhenClosed = NO;
     NSStackView *stack = [NSStackView stackViewWithViews:@[]];
@@ -351,18 +372,19 @@ static NSString *approvalError(NSString *duration, NSString *budget, NSInteger *
             self.session = nil;
             self.stopping = NO;
             self.practice.enabled = self.live.enabled = YES;
-            BOOL abnormal = closing.task.processIdentifier > 0 &&
-                (closing.task.terminationReason != NSTaskTerminationReasonExit || closing.task.terminationStatus != 0);
-            if (self.paid && abnormal) {
-                self.status.stringValue = @"The local service exited. Remote provider closure is unconfirmed. Check usage in your OpenAI account.";
+            self.status.stringValue = message;
+            if (self.paid) {
+                int receipt = closing.paidShutdownReceipt;
+                NSString *outcome = paidShutdownMessage(receipt);
+                // Preserve a useful startup error when the helper never admitted work.
+                self.status.stringValue = !self.opened && receipt == NoProviderWork
+                    ? [NSString stringWithFormat:@"%@ %@", message, outcome] : outcome;
                 if (self.quitting) {
                     NSAlert *alert = [[NSAlert alloc] init];
-                    alert.messageText = @"Review your live session usage";
-                    alert.informativeText = self.status.stringValue;
+                    alert.messageText = receipt == ClosureUnconfirmed ? @"Review your live session usage" : @"Your live session ended";
+                    alert.informativeText = outcome;
                     [alert runModal];
                 }
-            } else {
-                self.status.stringValue = message;
             }
             if (self.quitting) [NSApp replyToApplicationShouldTerminate:YES];
         });
@@ -382,7 +404,8 @@ int main(int argc, const char **argv) {
         signal(SIGPIPE, SIG_IGN);
         BOOL rehearsalCheck = argc == 2 && strcmp(argv[1], "--check") == 0;
         BOOL liveCheck = argc > 1 && strcmp(argv[1], "--check-live-config") == 0;
-        if (rehearsalCheck || liveCheck) {
+        BOOL expiryCheck = argc == 2 && strcmp(argv[1], "--check-idle-expiry") == 0;
+        if (rehearsalCheck || liveCheck || expiryCheck) {
             NSInteger minutes = 10, cents = 0;
             if (liveCheck) {
                 if (argc != 4) return 2;
@@ -394,18 +417,33 @@ int main(int argc, const char **argv) {
                 }
                 printf("%s Local limit: %s.\n", estimateText(minutes).UTF8String, dollars(cents).UTF8String);
             }
+            if (expiryCheck) { minutes = 1; cents = 7; }
             Session *check = [[Session alloc] init];
             check.checking = YES;
             BOOL ready = NO;
-            NSString *key = liveCheck ? @"fictional-key-never-transmitted" : nil;
+            NSString *key = (liveCheck || expiryCheck) ? @"fictional-key-never-transmitted" : nil;
             if ([check startWithKey:key minutes:minutes budgetCents:cents]) {
                 for (unsigned i = 0; i < 150 && check.task.running; i++) {
                     if (check.entry) { ready = YES; break; }
                     [NSThread sleepForTimeInterval:0.1];
                 }
             }
+            if (ready && expiryCheck) {
+                // Leave the pipe open through the one-minute meeting window and bootstrap grace.
+                // The check supplies only an inert key and never opens a browser or audio route.
+                NSTimeInterval limit = NSProcessInfo.processInfo.systemUptime + 220;
+                while (check.task.running && NSProcessInfo.processInfo.systemUptime < limit)
+                    [NSThread sleepForTimeInterval:0.1];
+                ready = !check.task.running;
+            }
             [check stop];
-            ready = ready && check.task.terminationReason == NSTaskTerminationReasonExit && check.task.terminationStatus == 0;
+            if (key) {
+                int receipt = check.paidShutdownReceipt;
+                puts(paidShutdownMessage(receipt).UTF8String);
+                ready = ready && receipt == NoProviderWork;
+            } else {
+                ready = ready && check.task.terminationReason == NSTaskTerminationReasonExit && check.task.terminationStatus == 0;
+            }
             puts(ready ? "Packaged session started and stopped." : "Packaged session check failed.");
             return ready ? 0 : 1;
         }

@@ -37,6 +37,34 @@ static NSButton *findButton(NSView *view, NSString *title) {
     }
     return nil;
 }
+// Drive the production Stop and timer paths with a real child exit and a
+// private pipe; the child simulates a receipt without any provider or audio.
+static void checkExit(Controller *controller, int code, BOOL manual, NSString *expected) {
+    Session *session = [Session new];
+    NSPipe *pipe = [NSPipe pipe];
+    session.writer = pipe.fileHandleForWriting;
+    session.task = [NSTask new];
+    session.task.executableURL = [NSURL fileURLWithPath:@"/bin/sh"];
+    session.task.arguments = @[@"-c", manual ? @"cat >/dev/null; exit \"$1\"" : @"exit \"$1\"",
+                               @"receipt", [NSString stringWithFormat:@"%d", code]];
+    session.task.standardInput = pipe;
+    check([session.task launchAndReturnError:nil], "simulated helper starts");
+    session.launched = YES;
+    controller.session = session;
+    controller.paid = YES;
+    controller.opened = YES;
+    if (manual) [controller stop:nil];
+    else {
+        [session.task waitUntilExit];
+        [controller check:nil];
+    }
+    NSTimeInterval end = NSProcessInfo.processInfo.systemUptime + 3;
+    while (controller.session && NSProcessInfo.processInfo.systemUptime < end)
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    check(controller.session == nil, "local session retires");
+    check([controller.status.stringValue isEqualToString:expected], "paid Stop status matches the provider receipt");
+}
+
 int main(void) {
     @autoreleasepool {
         NSApplication *app = [NSApplication sharedApplication];
@@ -91,8 +119,14 @@ int main(void) {
         [[NSRunLoop currentRunLoop] addTimer:inspect forMode:NSModalPanelRunLoopMode];
         [controller approve:nil];
         check(step == 2 && controller.startCount == 1 && !controller.session, "cancel after invalid approval starts no live session");
+        for (int manual = 0; manual <= 1; manual++) {
+            checkExit(controller, 20, manual, @"Local audio stopped. Enny did not start any OpenAI work.");
+            checkExit(controller, 21, manual, @"Local audio stopped. OpenAI confirmed that all admitted connections closed.");
+            checkExit(controller, 22, manual, @"Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.");
+            checkExit(controller, 0, manual, @"Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.");
+        }
         [controller.window orderOut:nil];
-        puts("Verified native billing labels, estimate changes, keyboard defaults, invalid approval and Cancel.");
+        puts("Verified native billing labels, estimate changes, keyboard defaults, invalid approval and Cancel, then simulated manual and natural shutdown receipts.");
     }
     return 0;
 }

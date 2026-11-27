@@ -83,6 +83,7 @@ def exercise(root, minutes, dollars, cents, expected_estimate):
         assert dummy not in captured, "A credential was displayed in the terminal"
         os.write(fd, b"\x03")
         wait_for(b"Stopping the interpreter.")
+        wait_for(b"Local audio stopped. Enny did not start any OpenAI work.", timeout=40)
         limit = time.monotonic() + 40
         while time.monotonic() < limit:
             done, status = os.waitpid(child, os.WNOHANG)

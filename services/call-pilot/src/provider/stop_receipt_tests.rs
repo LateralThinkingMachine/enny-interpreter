@@ -77,6 +77,60 @@ fn stop_evidence_requires_all_terminal_observations_and_separates_reservations()
     assert!(speech.stop_evidence().reserved_microusd.unwrap() > 0);
 }
 
+#[tokio::test]
+async fn desktop_shutdown_reads_every_admitted_route_after_workers_retire() {
+    use crate::{config::Config, session_host::SessionHost};
+    use ProviderActivity::{CloseObserved, NoneAdmitted, Unconfirmed};
+
+    let cwd = std::env::current_dir().unwrap();
+    let frame = json!({
+        "assets_dir": cwd, "credentials_path": cwd.join("unused-test-credentials.json"),
+        "api_key": "fictional-inert-credential", "meeting_minutes": 1, "budget_cents": 7,
+    })
+    .to_string();
+    for stop_reason in ["process_shutdown", "deadline"] {
+        // One supplied observation per admitted route. None models a startup
+        // failure or lost terminal event. No network transport runs here.
+        for (routes, expected) in [
+            (vec![], NoneAdmitted),
+            (vec![Some(true), Some(true)], CloseObserved),
+            (vec![Some(true), Some(false)], Unconfirmed),
+            (vec![None], Unconfirmed),
+        ] {
+            let config = Config::decode_desktop(frame.as_bytes()).unwrap();
+            assert!(config.paid_desktop_meeting());
+            let origins = config.origins().unwrap();
+            let (host, _) = SessionHost::new(
+                config.provider,
+                config.duration_seconds,
+                config.max_input_audio_seconds,
+                origins,
+                config.assets_dir,
+                config.repeatable_sessions,
+            )
+            .unwrap();
+            let backend = host.finite_fixture_backend();
+            for (route, observed) in [Route::Transcription, Route::Live].into_iter().zip(routes) {
+                let reservation = backend.shared.reserve(Some(route), 0).unwrap();
+                let shared = Arc::clone(&backend.shared);
+                let mut stop = shared.stop.subscribe();
+                backend
+                    .shared
+                    .spawn_owned(async move {
+                        stop.wait_for(|stopped| *stopped).await.unwrap();
+                        if let Some(confirmed) = observed {
+                            shared.record_diagnostic(terminal(route, confirmed));
+                        }
+                        drop(reservation);
+                    })
+                    .unwrap();
+            }
+            host.pilot().stop(stop_reason);
+            assert_eq!(host.shutdown_with_receipt().await, Some(expected));
+        }
+    }
+}
+
 #[test]
 fn racing_finite_reservation_and_global_stop_cannot_report_empty_after_admission() {
     use std::sync::Barrier;

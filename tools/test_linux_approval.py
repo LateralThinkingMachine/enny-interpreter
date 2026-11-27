@@ -76,7 +76,7 @@ class LiveApproval(unittest.TestCase):
             with self.subTest(live=bool(approval)), patch("start.subprocess.Popen") as popen, \
                     patch("start.wait_ready") as ready, patch("start.browser_entry"), redirect_stdout(io.StringIO()):
                 child = popen.return_value.__enter__.return_value
-                child.returncode = 0
+                child.returncode = 20 if approval else 0
                 run(approval, check=False)
                 child.wait.assert_any_call(timeout=timeout)
                 ready.assert_called_once()

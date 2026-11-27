@@ -5,6 +5,17 @@ use axum::{
 };
 use tower::ServiceExt;
 
+impl SessionHost {
+    // Lets the key-free transport fixture register its terminal observations
+    // on the same backend that the packaged host will retire.
+    pub(crate) fn finite_fixture_backend(&self) -> Arc<crate::provider::FiniteBackend> {
+        match &self.snapshot().provider {
+            Some(ActivatedBackend::Finite(backend)) => Arc::clone(backend),
+            _ => panic!("expected a finite meeting fixture"),
+        }
+    }
+}
+
 pub(super) struct RetirementGate {
     pub entered: tokio::sync::Semaphore,
     pub release: tokio::sync::Semaphore,

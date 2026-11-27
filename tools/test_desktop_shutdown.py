@@ -1,0 +1,123 @@
+"""Qualify an extracted desktop package with inert credentials and no provider.
+
+Run on the package's native OS with --expiry to also wait for the real idle
+deadline. The outcome matrix uses the packaged launcher byte-for-byte in a
+separate temporary layout. Only its helper is replaced by a fixture there.
+"""
+import argparse
+import hashlib
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+EXPECTED = {
+    20: "Local audio stopped. Enny did not start any OpenAI work.",
+    21: "Local audio stopped. OpenAI confirmed that all admitted connections closed.",
+    22: "Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.",
+}
+
+
+def synthetic_helper():
+    # This copy runs exclusively in the temporary fixture layout.
+    signal.alarm(15)
+    code, ending = json.loads(Path(__file__).with_name("case.json").read_text())
+    wire = sys.stdin.buffer
+    size = int.from_bytes(wire.read(4), "big")
+    config = json.loads(wire.read(size))
+    assert config["api_key"] == "fictional-key-never-transmitted"
+    path = Path(config["credentials_path"])
+    probed = threading.Event()
+
+    class Health(BaseHTTPRequestHandler):
+        def do_GET(self):
+            assert self.path == "/api/health"
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"mode":"supervised_local_pilot","providers_enabled":true}')
+            probed.set()
+
+        def log_message(self, *_args):
+            pass
+
+    if sys.platform.startswith("linux"):
+        server = HTTPServer(("127.0.0.1", config["operator_port"]), Health)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        json.dump({"origin": "http://127.0.0.1:5180", "bootstrap": "b" * 64}, stream)
+    if ending == "stop":
+        assert wire.read(1) == b"", "Expected parent pipe to close"
+    else:
+        if sys.platform == "darwin":
+            # Session.entry consumes the private credential file before waiting.
+            while path.exists():
+                time.sleep(0.01)
+        else:
+            assert probed.wait(5)
+        assert not select.select([wire], [], [], 0.15)[0], "Expected parent pipe to stay open"
+    return code
+
+
+def check(package, full_expiry):
+    mac = sys.platform == "darwin"
+    launcher = Path("Contents/MacOS/Interpreter" if mac else "start.py")
+    helper = Path("Contents/Helpers/meeting-call-pilot" if mac else "bin/meeting-call-pilot")
+
+    def run(root, ending, code, timeout):
+        command = [str(root / launcher)] if mac else [sys.executable, "-I", str(root / launcher)]
+        arguments = ["--check-idle-expiry"] if ending == "expiry" else ["--check-live-config"]
+        if mac and ending == "stop":
+            arguments += ["1", "0.07"]
+        result = subprocess.run(command + arguments, capture_output=True, text=True, timeout=timeout)
+        text = result.stdout + result.stderr
+        expected = EXPECTED.get(code, EXPECTED[22])
+        # The Mac diagnostic also expects zero admissions when it supplies an inert key.
+        success = code == 20 if mac else code in (20, 21)
+        assert (result.returncode == 0) == success, (ending, code, result.returncode, text)
+        assert text.splitlines().count(expected) == 1, (ending, code, text)
+        assert all(other not in text for other in EXPECTED.values() if other != expected)
+
+    run(package, "stop", 20, 55)
+    print("Original package: parent-pipe Stop, no provider work admitted.", flush=True)
+    if full_expiry:
+        started = time.monotonic()
+        run(package, "expiry", 20, 235)
+        elapsed = time.monotonic() - started
+        assert elapsed >= 179, "The native one-minute window plus bootstrap grace did not elapse"
+        print(f"Original package: natural idle expiry, no provider work admitted ({elapsed:.1f}s).", flush=True)
+
+    with tempfile.TemporaryDirectory(prefix="enny-launcher-receipts-") as temp:
+        root = Path(temp) / package.name
+        shutil.copytree(package, root)
+        def digest(path):
+            return hashlib.sha256(path.read_bytes()).digest()
+        assert digest(root / launcher) == digest(package / launcher)
+        fixture = root / helper
+        fixture.write_bytes(b"#!" + os.fsencode(sys.executable) + b"\n" + Path(__file__).read_bytes())
+        fixture.chmod(0o755)
+        for ending in ("stop", "expiry"):
+            for code in (20, 21, 22, 0):
+                fixture.with_name("case.json").write_text(json.dumps([code, ending]))
+                run(root, ending, code, 25)
+        assert digest(root / launcher) == digest(package / launcher)
+    print("Packaged launcher with synthetic child: Stop and expiry showed all three outcomes; status zero stayed unconfirmed.")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--desktop-pipe"]:
+        sys.exit(synthetic_helper())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("package", type=Path, help="extracted .app on macOS or directory containing start.py on Linux")
+    parser.add_argument("--expiry", action="store_true", help="also wait about three minutes for the actual native deadline")
+    opts = parser.parse_args()
+    check(opts.package.resolve(strict=True), opts.expiry)

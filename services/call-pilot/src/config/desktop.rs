@@ -28,6 +28,11 @@ enum DesktopFrame {
 }
 
 impl Config {
+    /// Only the paid packaged meeting frame opts in to the launcher exit protocol.
+    pub fn paid_desktop_meeting(&self) -> bool {
+        matches!(&self.provider, Some(ProviderActivation::Finite(p)) if p.desktop_meeting)
+    }
+
     pub fn decode_desktop(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() > 16 * 1024 {
             return Err("config_bound");

@@ -553,6 +553,12 @@ impl SessionHost {
         self.webrtc.admit(pinned.clone(), authority, offer)
     }
     pub async fn shutdown(&self) -> bool {
+        self.shutdown_with_receipt().await.is_some()
+    }
+
+    /// Return the process-local provider observation after all owned workers have
+    /// retired. Missing local retirement cannot supply an authoritative receipt.
+    pub async fn shutdown_with_receipt(&self) -> Option<engine::ProviderActivity> {
         self.stopping.store(true, Ordering::Release);
         let (previous, task) = {
             let mut state = self.state.lock().expect("session host");
@@ -575,7 +581,17 @@ impl SessionHost {
         let current = self.snapshot();
         current.pilot.stop("process_shutdown");
         let (retired, webrtc_retired) = tokio::join!(current.retire(), self.webrtc.shutdown());
-        joined && pause_joined && retired && webrtc_retired
+        if !(joined && pause_joined && retired && webrtc_retired) {
+            return None;
+        }
+        Some(match &current.provider {
+            None => engine::ProviderActivity::NoneAdmitted,
+            Some(ActivatedBackend::Finite(provider)) => {
+                engine::ProviderBackend::stop_evidence(provider.as_ref()).activity
+            }
+            // A single slot cannot certify every continuous window and WebRTC owner.
+            Some(ActivatedBackend::Continuous(_)) => engine::ProviderActivity::Unconfirmed,
+        })
     }
 }
 

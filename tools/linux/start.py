@@ -21,6 +21,26 @@ from local_call_pilot import ORIGIN, browser_entry, wait_ready
 DEFAULT_MINUTES = 60
 DEFAULT_BUDGET_CENTS = 500
 
+# Positive receipts are reserved exit codes of the paid --desktop-pipe helper.
+# An ordinary process exit, including status zero, gives no provider receipt.
+NO_PROVIDER_WORK = 20
+ALL_CONNECTIONS_CLOSED = 21
+UNCERTAIN_CLOSURE = "Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account."
+
+
+class UnconfirmedShutdown(RuntimeError):
+    """The paid helper supplied no positive closure receipt."""
+
+
+def report_paid_shutdown(returncode):
+    if returncode == NO_PROVIDER_WORK:
+        print("Local audio stopped. Enny did not start any OpenAI work.", flush=True)
+    elif returncode == ALL_CONNECTIONS_CLOSED:
+        print("Local audio stopped. OpenAI confirmed that all admitted connections closed.", flush=True)
+    else:
+        raise UnconfirmedShutdown(UNCERTAIN_CLOSURE)
+
+
 
 def usd(cents):
     return f"{cents // 100}.{cents % 100:02}"
@@ -86,7 +106,7 @@ def approve_session():
     return minutes, cents, key
 
 
-def run(approval, check):
+def run(approval, check, *, wait_for_expiry=False):
     with tempfile.TemporaryDirectory(prefix="meeting-interpreter-") as temp:
         directory = Path(temp).resolve()
         config = {
@@ -118,6 +138,7 @@ def run(approval, check):
                 else:
                     browser_entry(directory, open_browser=True, origin=ORIGIN)
                     print("Press Ctrl-C to stop. Keep the operator tab private.", flush=True)
+                if not check or wait_for_expiry:
                     child.wait(timeout=timeout)
             except KeyboardInterrupt:
                 print("Stopping the interpreter.", flush=True)
@@ -131,10 +152,9 @@ def run(approval, check):
                 except subprocess.TimeoutExpired:
                     child.kill()
                     child.wait()
-                    raise RuntimeError("Local service was terminated. Check provider usage for any approved live session.") from None
-                if child.returncode:
-                    if approval is not None:
-                        raise RuntimeError("Live session closure is uncertain. Check active sessions and billing with your provider.")
+                if approval is not None:
+                    report_paid_shutdown(child.returncode)
+                elif child.returncode:
                     raise RuntimeError("The local rehearsal service exited unexpectedly.")
 
 
@@ -148,6 +168,7 @@ def main():
     mode.add_argument("--live", action="store_true", help="Start live interpretation · billed by your own OpenAI account")
     mode.add_argument("--check", action="store_true", help="verify key-free startup and shutdown")
     mode.add_argument("--check-live-config", action="store_true", help="verify the one-hour live configuration with an inert test value")
+    mode.add_argument("--check-idle-expiry", action="store_true", help="wait for a one-minute live configuration to expire with no browser or provider work")
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGHUP, request_stop)
@@ -160,7 +181,10 @@ def main():
         approval = approve_session()
     elif args.check_live_config:
         approval = (DEFAULT_MINUTES, DEFAULT_BUDGET_CENTS, "fictional-key-never-transmitted")
-    run(approval, args.check or args.check_live_config)
+    if args.check_idle_expiry:
+        run((1, 7, "fictional-key-never-transmitted"), True, wait_for_expiry=True)
+    else:
+        run(approval, args.check or args.check_live_config)
 
 
 if __name__ == "__main__":
@@ -168,5 +192,7 @@ if __name__ == "__main__":
         main()
     except (EOFError, KeyboardInterrupt):
         sys.exit("Session canceled.")
+    except UnconfirmedShutdown as error:
+        sys.exit(str(error))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         sys.exit(f"Interpreter: {error}")

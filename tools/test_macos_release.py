@@ -2,12 +2,13 @@
 import argparse
 import hashlib
 import json
+import plistlib
 from pathlib import Path
 import struct
 import subprocess
 import tempfile
 
-from build_macos_release import APP, ARCHIVE
+from build_macos_release import APP, ARCHIVE, BUNDLE_BUILD
 from local_call_pilot import wait_ready
 
 
@@ -54,6 +55,9 @@ def check_download(download, chrome):
         root = Path(unpacked).resolve()
         app = root / APP
         subprocess.run(["/usr/bin/ditto", "-x", "-k", download, root], check=True)
+        metadata = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+        assert metadata["CFBundleVersion"] == BUNDLE_BUILD
+        assert metadata["CFBundleShortVersionString"] == "0.1.0"
         subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app], check=True)
         env = {"PATH": "/usr/bin:/bin", "LANG": "C"}
         launcher = app / "Contents/MacOS/Interpreter"
@@ -76,6 +80,7 @@ def check_download(download, chrome):
             result = subprocess.run([launcher, "--check-live-config", minutes, budget],
                                     env=env, check=True, capture_output=True, text=True, timeout=55)
             quote = f"Estimated OpenAI cost for one listener is {estimate} for {minutes} minute"
+            assert "Local audio stopped. Enny did not start any OpenAI work." in result.stdout
             if quote not in result.stdout or f"Local limit: {limit}." not in result.stdout:
                 raise RuntimeError("The launcher did not distinguish the OpenAI estimate from the local limit")
         for minutes, budget in [("0", "5"), ("61", "5"), ("1.5", "5"), ("60", "4.01"),

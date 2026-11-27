@@ -1,7 +1,8 @@
 use meeting_call_pilot::{
-    auth::Role, config::Config, http::hosted_router, session_host::SessionHost,
+    auth::Role, config::Config, engine::ProviderActivity, http::hosted_router,
+    session_host::SessionHost,
 };
-use std::{future::IntoFuture, io::Read, path::Path, time::Duration};
+use std::{future::IntoFuture, io::Read, path::Path, process::ExitCode, time::Duration};
 use tokio::sync::oneshot;
 
 // The desktop app sends one length-prefixed JSON configuration over an anonymous
@@ -47,14 +48,27 @@ fn desktop_config() -> Result<(Config, oneshot::Receiver<()>), &'static str> {
 }
 
 #[tokio::main]
-async fn main() {
-    if let Err(code) = run().await {
-        eprintln!("call-pilot: {code}");
-        std::process::exit(1);
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(status) => status,
+        Err(code) => {
+            eprintln!("call-pilot: {code}");
+            ExitCode::FAILURE
+        }
     }
 }
 
-async fn run() -> Result<(), &'static str> {
+// The paid Mac and Linux launchers consume only these three normal exits.
+// Every other status, signal, or missing result leaves provider closure unknown.
+fn desktop_exit(activity: ProviderActivity) -> ExitCode {
+    ExitCode::from(match activity {
+        ProviderActivity::NoneAdmitted => 20,
+        ProviderActivity::CloseObserved => 21,
+        ProviderActivity::Unconfirmed => 22,
+    })
+}
+
+async fn run() -> Result<ExitCode, &'static str> {
     let args = std::env::args().collect::<Vec<_>>();
     let (mut config, parent) = match &args[1..] {
         [flag, path] if flag == "--config" => (Config::load(Path::new(path))?, None),
@@ -64,6 +78,7 @@ async fn run() -> Result<(), &'static str> {
         }
         _ => return Err("expected_private_config"),
     };
+    let paid_desktop = config.paid_desktop_meeting();
     let origins = config.origins()?;
     let (host, ticket) = SessionHost::new(
         config.provider.take(),
@@ -104,13 +119,16 @@ async fn run() -> Result<(), &'static str> {
             _=async { if let Some(signal)=termination.as_mut(){signal.recv().await;}else{std::future::pending::<()>().await;} }=>"process_shutdown",
         };
         pilot.stop(reason);
-        let closed = matches!(
-            // A WebRTC POST already in flight must be observed, attached and
-            // closed before retirement; the HTTP listeners have 3s afterward.
-            tokio::time::timeout(Duration::from_secs(32), host.shutdown()).await,
-            Ok(true)
-        );
-        shutdown_tx.send_replace(Some(closed));
+        // Let any in-flight creation retire before publishing a result. The HTTP
+        // listeners then have three more seconds to complete local shutdown.
+        let result =
+            match tokio::time::timeout(Duration::from_secs(32), host.shutdown_with_receipt()).await
+            {
+                Ok(Some(activity)) if paid_desktop => Ok(desktop_exit(activity)),
+                Ok(Some(_)) => Ok(ExitCode::SUCCESS),
+                _ => Err("provider_shutdown_uncertain"),
+            };
+        shutdown_tx.send_replace(Some(result));
     });
     let server = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
@@ -128,8 +146,5 @@ async fn run() -> Result<(), &'static str> {
         result=&mut server=>result.map(|_|()).map_err(|_|"server_unavailable"),
         _=shutdown_rx.changed()=>tokio::time::timeout(Duration::from_secs(3),&mut server).await.map_err(|_|"shutdown_deadline")?.map(|_|()).map_err(|_|"server_unavailable"),
     }?;
-    if *shutdown_rx.borrow() == Some(false) {
-        return Err("provider_shutdown_uncertain");
-    }
-    Ok(())
+    shutdown_rx.borrow().unwrap_or(Err("shutdown_unobserved"))
 }

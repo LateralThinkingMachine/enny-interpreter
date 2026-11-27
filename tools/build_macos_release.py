@@ -21,6 +21,8 @@ APP = "Real-time Interpreter.app"
 ARCHIVE = "real-time-interpreter-macos-arm64.zip"
 TARGET = "aarch64-apple-darwin"
 MIN_MACOS = "14.0"
+# Increase for each distributed Mac build, including previews of the same version.
+BUNDLE_BUILD = "4"
 
 
 def run(*args, **kwargs):
@@ -87,7 +89,7 @@ def assemble(root, server):
         "CFBundleIdentifier": "org.lateralthinkingmachine.realtime-interpreter",
         "CFBundleExecutable": launcher.name, "CFBundlePackageType": "APPL",
         "CFBundleName": "Enny", "CFBundleDisplayName": "Enny", "CFBundleInfoDictionaryVersion": "6.0",
-        "CFBundleShortVersionString": version, "CFBundleVersion": version,
+        "CFBundleShortVersionString": version, "CFBundleVersion": BUNDLE_BUILD,
         "LSMinimumSystemVersion": MIN_MACOS, "NSHighResolutionCapable": True,
     }))
     copy_web(resources / "web")
