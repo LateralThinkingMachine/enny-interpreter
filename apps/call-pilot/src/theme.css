@@ -1,0 +1,19 @@
+/* Owner-provided September 27 palette. Keep status meaning in words as well as color. */
+:root {
+  --mc-canvas: #f9f6e7;
+  --mc-ink: #29304b;
+  --mc-ink-muted: #515970;
+  --mc-ink-soft: #5c6478;
+  --mc-surface: #fffdf5;
+  --mc-surface-subtle: #f1eee2;
+  --mc-surface-selected: #e5e7ef;
+  --mc-surface-hover: #eeedf1;
+  --mc-line: #dad7cb;
+  --mc-control-border: #80869b;
+  --mc-focus: #5268a1;
+  --mc-accent-hover: #3d4664;
+  --mc-header-surface: rgb(249 246 231 / 98%);
+  --mc-shadow: rgb(41 48 75 / 8%);
+  --mc-chart-forecast: #806946;
+  accent-color: var(--mc-ink);
+}

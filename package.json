@@ -1,0 +1,14 @@
+{
+  "name": "real-time-interpretation",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.12.0",
+  "engines": {"node": "25.6.1", "pnpm": "11.12.0"},
+  "scripts": {
+    "build": "pnpm --filter @meeting/call-pilot build",
+    "build:portable": "python3 tools/build_web_ui.py portable",
+    "check:portable": "python3 tools/build_web_ui.py portable --check",
+    "test": "node --test standalone/meeting-interpreter.test.mjs && pnpm --filter @meeting/call-pilot test"
+  }
+}

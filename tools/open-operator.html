@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-IABMD1dt7+D1NnJxQJonPEaa3AjBBUtIjrRWt7Hi3v4='; style-src 'sha256-oDKEesWSAFx1Z+UxuMYab5d4xDbEVM6ovP5W6OmbPD0='; base-uri 'none'; form-action 'none'">
+<title>Open your local interpreter</title>
+<style>
+:root{font:100%/1.5 system-ui,sans-serif;color-scheme:light dark}body{max-width:35rem;margin:12vh auto;padding:1rem}h1{line-height:1.15}label{font-weight:600;display:block;margin:1.5rem 0 .5rem}input{font:inherit;max-width:100%}#status{min-height:1.5rem}
+</style>
+</head>
+<body>
+<h1>Open your local interpreter</h1>
+<p>Use the browser on the computer running the interpreter. For WSL, use a Linux browser running inside the same distribution.</p>
+<p>Select the private <code>credentials.json</code> file shown by the launcher. The one-use entry expires two minutes after startup.</p>
+<label for="entry">Session credentials file</label>
+<input id="entry" type="file" accept=".json,application/json" disabled>
+<p role="status" id="status"></p>
+<noscript>Enable JavaScript to open the local operator session.</noscript>
+<script>
+"use strict";
+const input = document.getElementById("entry");
+const status = document.getElementById("status");
+if (location.protocol === "file:" && window.top === window.self) {
+  input.disabled = false;
+} else {
+  status.textContent = "Open this downloaded helper directly in its own browser tab.";
+}
+input.addEventListener("change", async () => {
+  const file = input.files[0];
+  if (!file) return;
+  input.disabled = true;
+  try {
+    if (file.name !== "credentials.json" || file.size > 16_384) throw new Error();
+    const value = JSON.parse(await file.text());
+    if (!["http://127.0.0.1:5080", "http://127.0.0.1:5180"].includes(value.origin)
+        || typeof value.bootstrap !== "string" || value.bootstrap.length !== 64
+        || /[^0-9a-f]/.test(value.bootstrap)) throw new Error();
+    location.replace(value.origin + "/#bootstrap=" + value.bootstrap);
+  } catch {
+    status.textContent = "Select the credentials.json from the current local session.";
+    input.value = "";
+    input.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

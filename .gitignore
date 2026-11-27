@@ -1,0 +1,74 @@
+# Private credentials, runtime sessions and operator exports
+.env
+.env.*
+.envrc
+.interpreter-runtime/
+.companion/
+.local/
+.*approval-ledger/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+*oauth*.json
+*token*.json
+*service-account*.json
+activation*.json
+*.log
+*.db
+*.sqlite*
+*.har
+*.wav
+*.mp3
+*.mp4
+*.webm
+*.mov
+*.png
+*.jpg
+*.pdf
+*.zip
+screenshots/
+exports/
+private-call-pilot-notes*.txt
+recordings/
+transcripts/
+
+# Generated files
+.DS_Store
+target/
+node_modules/
+dist/
+.test-build/
+__pycache__/
+*.pyc
+.pnpm-store/
+
+# wasm-bindgen output for the local web client
+/apps/call-pilot/generated/
+
+# Private product planning. Keep neutral filenames and exports in private-planning/.
+private-planning/
+[Pp][Rr][Dd]*
+*[._ -][Pp][Rr][Dd]
+*[._ -][Pp][Rr][Dd][._ -]*
+*[._ -][Pp][Rr][Dd][Ss]
+*[._ -][Pp][Rr][Dd][Ss][._ -]*
+*[Pp]roduct[Rr]equirements*
+*[Pp][Rr][Oo][Dd][Uu][Cc][Tt][ _-][Rr][Ee][Qq][Uu][Ii][Rr][Ee][Mm][Ee][Nn][Tt][Ss]*
+*[Kk][Aa][Nn][Bb][Aa][Nn]*
+# Loose ticket records and common issue-tracker exports.
+[Tt][Ii][Cc][Kk][Ee][Tt]*.md
+[Tt][Ii][Cc][Kk][Ee][Tt]*.json
+[Tt][Ii][Cc][Kk][Ee][Tt]*.csv
+[Tt][Ii][Cc][Kk][Ee][Tt]*.html
+[Tt][Ii][Cc][Kk][Ee][Tt]*.xlsx
+[Tt][Ii][Cc][Kk][Ee][Tt]*.pdf
+/[Bb]oards/
+/[Tt]ickets/
+/[Tt]asks/
+/docs/**/[Bb]oards/
+/docs/**/[Tt]ickets/
+/docs/**/[Tt]asks/
+/docs/product/
+/docs/plans/

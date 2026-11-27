@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": ".test-build",
+    "types": [],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/App.tsx",
+    "src/audio/ducking-worklet.js"
+  ],
+  "exclude": [
+    "src/audio/capture-worklet.js"
+  ]
+}
