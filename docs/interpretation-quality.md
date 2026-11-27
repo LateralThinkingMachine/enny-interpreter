@@ -9,6 +9,8 @@
 | Gemini source preview | Use your own Google key and one spoken target per session, English, Japanese or Hindi. | The adapter has local protocol tests. Live Google availability, audible quality and charges still need independent verification. [Source activation](../README.md#gemini-fixed-target-source-preview) |
 | Single HTML file | Open in desktop Chrome. The offline sample needs no key. Typed translation needs a browser language pack. | Browser-native live captions are experimental. Availability depends on browser, profile and languages. Use the full app for spoken interpretation. |
 
+The desktop downloads support finite sessions with a time and cost limit. The optional repeatable WebRTC mode is outside preview support.
+
 For a browser meeting, select the **meeting tab** and enable **Share tab audio**. The full app also offers a separate microphone input. Window capture and whole-screen capture are refused. Product-specific end-to-end capture, mobile browsers and other desktop browsers need separate verification.
 
 ## Interpretation quality benchmark
