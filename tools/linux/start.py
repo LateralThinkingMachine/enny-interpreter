@@ -33,11 +33,27 @@ class UnconfirmedShutdown(RuntimeError):
     """The paid helper supplied no positive closure receipt."""
 
 
+def write_status(message, *streams):
+    for stream in streams:
+        if stream is None:
+            continue
+        try:
+            print(message, file=stream, flush=True)
+            return
+        except (OSError, ValueError):
+            # A dead redirected stream must not mask the receipt or turn a
+            # successful exit into a Python shutdown-time flush error.
+            if stream is sys.stdout:
+                sys.stdout = None
+            if stream is sys.stderr:
+                sys.stderr = None
+
+
 def report_paid_shutdown(returncode):
     if returncode == NO_PROVIDER_WORK:
-        print("Local audio stopped. Enny did not start any OpenAI work.", flush=True)
+        write_status("Local audio stopped. Enny did not start any OpenAI work.", sys.stdout, sys.stderr)
     elif returncode == ALL_CONNECTIONS_CLOSED:
-        print("Local audio stopped. OpenAI confirmed that all admitted connections closed.", flush=True)
+        write_status("Local audio stopped. OpenAI confirmed that all admitted connections closed.", sys.stdout, sys.stderr)
     else:
         raise UnconfirmedShutdown(UNCERTAIN_CLOSURE)
 
@@ -160,15 +176,14 @@ def run(approval, check, *, wait_for_expiry=False, stop_requested=lambda: False)
                 if stop_requested():
                     return
                 if check:
-                    print("Packaged session configuration accepted.")
+                    write_status("Packaged session configuration accepted.", sys.stdout)
                 else:
                     browser_entry(directory, open_browser=True, origin=ORIGIN)
-                    print("Press Ctrl-C to stop. Keep the operator tab private.", flush=True)
+                    write_status("Press Ctrl-C to stop. Keep the operator tab private.", sys.stdout, sys.stderr)
                 if not check or wait_for_expiry:
                     wait_for_end(child, timeout, stop_requested)
             finally:
-                if stop_requested():
-                    print("Stopping the interpreter.", flush=True)
+                # Closing the lifetime pipe and making the bounded wait must precede any output.
                 try:
                     child.stdin.close()
                 except BrokenPipeError:
@@ -178,6 +193,8 @@ def run(approval, check, *, wait_for_expiry=False, stop_requested=lambda: False)
                 except subprocess.TimeoutExpired:
                     child.kill()
                     child.wait()
+                if stop_requested():
+                    write_status("Stopping the interpreter.", sys.stdout)
                 if approval is not None:
                     report_paid_shutdown(child.returncode)
                 elif child.returncode:
@@ -232,6 +249,7 @@ if __name__ == "__main__":
     except (EOFError, KeyboardInterrupt):
         sys.exit("Session canceled.")
     except UnconfirmedShutdown as error:
-        sys.exit(str(error))
+        write_status(str(error), sys.stderr, sys.stdout)
+        sys.exit(1)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         sys.exit(f"Interpreter: {error}")

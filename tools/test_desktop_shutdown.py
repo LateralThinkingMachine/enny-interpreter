@@ -79,24 +79,36 @@ def synthetic_helper():
     return code
 
 
-def repeated_signals(root, case, during_setup):
+def repeated_signals(root, case, during_setup, *, receipt=22, disconnect_fd=None):
     """Send real Stop signals to --live while its child delays retirement."""
     for ext in (".starting", ".closing", ".release"):
         case.with_suffix(ext).unlink(missing_ok=True)
-    case.write_text(json.dumps([22, "signal-setup" if during_setup else "signal-active"]))
+    case.write_text(json.dumps([receipt, "signal-setup" if during_setup else "signal-active"]))
+    read_end, write_end = os.pipe() if disconnect_fd is not None else (None, None)
     pid, terminal = pty.fork()
     if pid == 0:
+        if disconnect_fd is not None:
+            os.close(read_end)
+            os.dup2(write_end, disconnect_fd)
+            os.close(write_end)
         os.chdir(root)
         os.execv(sys.executable, [sys.executable, "-I", "start.py", "--live"])
+    if write_end is not None:
+        os.close(write_end)
+    sources = [terminal] if read_end is None else [terminal, read_end]
     output = bytearray()
 
     def until(prompt):
         deadline = time.monotonic() + 10
         while prompt not in output:
             elapsed = deadline - time.monotonic()
-            if elapsed <= 0 or not select.select([terminal], [], [], elapsed)[0]:
+            ready = select.select(sources, [], [], max(elapsed, 0))[0]
+            if elapsed <= 0 or not ready:
                 raise AssertionError(f"Missing terminal prompt {prompt!r}")
-            output.extend(os.read(terminal, 8192))
+            for source in ready:
+                chunk = os.read(source, 8192)
+                assert chunk, "Launcher exited before delivering its receipt"
+                output.extend(chunk)
 
     def marker(ext):
         deadline = time.monotonic() + 5
@@ -116,19 +128,25 @@ def repeated_signals(root, case, during_setup):
             marker(".starting")
         else:
             until(b"Press Ctrl-C to stop.")
+        if read_end is not None:
+            # A downstream reader exits after approval. All further evidence
+            # must be visible on the other, still-open terminal stream.
+            sources.remove(read_end)
+            os.close(read_end)
+            read_end = None
         os.kill(pid, signal.SIGINT)
         marker(".closing")
         for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
             os.kill(pid, number)
             time.sleep(0.03)
         case.with_suffix(".release").touch()
-        until(EXPECTED[22].encode())
+        until(EXPECTED[receipt].encode())
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             done, status = os.waitpid(pid, os.WNOHANG)
             if done:
                 pid = None
-                assert os.waitstatus_to_exitcode(status) == 1
+                assert os.waitstatus_to_exitcode(status) == (0 if receipt in (20, 21) else 1)
                 break
             time.sleep(0.01)
         assert pid is None, "Launcher did not finish after the receipt"
@@ -141,9 +159,13 @@ def repeated_signals(root, case, during_setup):
             if not chunk:
                 break
             output.extend(chunk)
-        assert output.splitlines().count(EXPECTED[22].encode()) == 1
+        assert output.splitlines().count(EXPECTED[receipt].encode()) == 1
+        assert all(text.encode() not in output for code, text in EXPECTED.items() if code != receipt)
+        assert b"BrokenPipeError" not in output
         assert b"Session canceled." not in output and b"Traceback" not in output
     finally:
+        if read_end is not None:
+            os.close(read_end)
         os.close(terminal)
         if pid is not None:
             os.kill(pid, signal.SIGKILL)
@@ -203,7 +225,11 @@ def check(package, full_expiry):
         if not mac:
             for during_setup in (True, False):
                 repeated_signals(root, fixture.with_name("case.json"), during_setup)
-            print("Linux interactive launcher: repeated Stop signals during setup and active use preserved one uncertain receipt.")
+            for closed in (1, 2):
+                for receipt in (20, 21, 22):
+                    repeated_signals(root, fixture.with_name("case.json"), False,
+                                     receipt=receipt, disconnect_fd=closed)
+            print("Linux interactive launcher: repeated Stop signals preserved the receipt. Each of the three outcomes reached the surviving stream after stdout or stderr disconnected.")
         assert digest(root / launcher) == digest(package / launcher)
     print("Packaged launcher with synthetic child: Stop and expiry showed all three outcomes; status zero stayed unconfirmed.")
 
