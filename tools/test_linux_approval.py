@@ -33,7 +33,8 @@ class LiveApproval(unittest.TestCase):
             self.assertIn("Start free rehearsal", output.getvalue())
             self.assertIn("US$0.00", output.getvalue())
             key.assert_not_called()
-            launch.assert_called_once_with(None, False)
+            self.assertEqual(launch.call_args.args, (None, False))
+            self.assertFalse(launch.call_args.kwargs["stop_requested"]())
 
     def test_final_cost_confirmation_defaults_to_no_before_key_or_startup(self):
         for refusal in ("", "n", "later"):
@@ -74,11 +75,11 @@ class LiveApproval(unittest.TestCase):
         dummy = "a-fictional-unusable-key"
         for approval, timeout in [((60, 402, dummy), 3760), (None, 640)]:
             with self.subTest(live=bool(approval)), patch("start.subprocess.Popen") as popen, \
-                    patch("start.wait_ready") as ready, patch("start.browser_entry"), redirect_stdout(io.StringIO()):
+                    patch("start.wait_ready") as ready, patch("start.wait_for_end") as wait, patch("start.browser_entry"), redirect_stdout(io.StringIO()):
                 child = popen.return_value.__enter__.return_value
                 child.returncode = 20 if approval else 0
                 run(approval, check=False)
-                child.wait.assert_any_call(timeout=timeout)
+                self.assertEqual(wait.call_args.args[:2], (child, timeout))
                 ready.assert_called_once()
                 self.assertEqual(ready.call_args.kwargs["providers_enabled"], bool(approval))
                 wire, = child.stdin.write.call_args.args
@@ -94,6 +95,18 @@ class LiveApproval(unittest.TestCase):
                     self.assertEqual(frame["duration_seconds"], 600)
                     self.assertIsNone(frame["provider"])
                     self.assertNotIn("api_key", frame)
+
+    def test_stop_before_spawn_and_failed_spawn_report_no_admission(self):
+        approval = (1, 7, "fictional-inert-value")
+        for stopped in (True, False):
+            with self.subTest(stopped=stopped), patch("start.subprocess.Popen", side_effect=OSError("missing helper")) as spawn, redirect_stdout(io.StringIO()) as output:
+                if stopped:
+                    run(approval, True, stop_requested=lambda: True)
+                    spawn.assert_not_called()
+                else:
+                    with self.assertRaisesRegex(OSError, "missing helper"):
+                        run(approval, True)
+                self.assertEqual(output.getvalue().strip(), "Local audio stopped. Enny did not start any OpenAI work.")
 
     def test_visible_key_entry_is_denied(self):
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=["60", "4.02", "y", "y", "y", "y", "yes"]), \

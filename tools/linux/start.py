@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import warnings
 
 
@@ -106,7 +107,20 @@ def approve_session():
     return minutes, cents, key
 
 
-def run(approval, check, *, wait_for_expiry=False):
+def wait_for_end(child, timeout, stop_requested):
+    deadline = time.monotonic() + timeout
+    while not stop_requested():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(child.args, timeout)
+        try:
+            child.wait(timeout=min(0.2, remaining))
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def run(approval, check, *, wait_for_expiry=False, stop_requested=lambda: False):
     with tempfile.TemporaryDirectory(prefix="meeting-interpreter-") as temp:
         directory = Path(temp).resolve()
         config = {
@@ -124,25 +138,37 @@ def run(approval, check, *, wait_for_expiry=False):
         frame = json.dumps(config).encode()
         if len(frame) > 16 * 1024:
             raise ValueError("Session configuration is too large.")
-        with subprocess.Popen(
-            [ROOT / "bin/meeting-call-pilot", "--desktop-pipe"], stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=directory,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C"}, start_new_session=True,
-        ) as child:
+        if stop_requested():
+            if approval is not None:
+                report_paid_shutdown(NO_PROVIDER_WORK)
+            return
+        try:
+            process = subprocess.Popen(
+                [ROOT / "bin/meeting-call-pilot", "--desktop-pipe"], stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=directory,
+                env={"PATH": "/usr/bin:/bin", "LANG": "C"}, start_new_session=True,
+            )
+        except OSError:
+            if approval is not None:
+                report_paid_shutdown(NO_PROVIDER_WORK)
+            raise
+        with process as child:
             try:
                 child.stdin.write(struct.pack(">I", len(frame)) + frame)
                 child.stdin.flush()
-                wait_ready(child, directory, providers_enabled=approval is not None)
+                wait_ready(child, directory, providers_enabled=approval is not None, stop_requested=stop_requested)
+                if stop_requested():
+                    return
                 if check:
                     print("Packaged session configuration accepted.")
                 else:
                     browser_entry(directory, open_browser=True, origin=ORIGIN)
                     print("Press Ctrl-C to stop. Keep the operator tab private.", flush=True)
                 if not check or wait_for_expiry:
-                    child.wait(timeout=timeout)
-            except KeyboardInterrupt:
-                print("Stopping the interpreter.", flush=True)
+                    wait_for_end(child, timeout, stop_requested)
             finally:
+                if stop_requested():
+                    print("Stopping the interpreter.", flush=True)
                 try:
                     child.stdin.close()
                 except BrokenPipeError:
@@ -181,10 +207,23 @@ def main():
         approval = approve_session()
     elif args.check_live_config:
         approval = (DEFAULT_MINUTES, DEFAULT_BUDGET_CENTS, "fictional-key-never-transmitted")
+    # During consent a signal cancels input. Once approved, every signal latches
+    # the same Stop request. Nothing can interrupt the final wait or its receipt.
+    stopping = False
+
+    def latch_stop(_number, _frame):
+        nonlocal stopping
+        stopping = True
+
+    def stop_requested():
+        return stopping
+
+    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, latch_stop)
     if args.check_idle_expiry:
-        run((1, 7, "fictional-key-never-transmitted"), True, wait_for_expiry=True)
+        run((1, 7, "fictional-key-never-transmitted"), True, wait_for_expiry=True, stop_requested=stop_requested)
     else:
-        run(approval, args.check or args.check_live_config)
+        run(approval, args.check or args.check_live_config, stop_requested=stop_requested)
 
 
 if __name__ == "__main__":

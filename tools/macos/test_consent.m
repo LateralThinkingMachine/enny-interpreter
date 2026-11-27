@@ -41,21 +41,15 @@ static NSButton *findButton(NSView *view, NSString *title) {
 // private pipe; the child simulates a receipt without any provider or audio.
 static void checkExit(Controller *controller, int code, BOOL manual, NSString *expected) {
     Session *session = [Session new];
-    NSPipe *pipe = [NSPipe pipe];
-    session.writer = pipe.fileHandleForWriting;
-    session.task = [NSTask new];
-    session.task.executableURL = [NSURL fileURLWithPath:@"/bin/sh"];
-    session.task.arguments = @[@"-c", manual ? @"cat >/dev/null; exit \"$1\"" : @"exit \"$1\"",
-                               @"receipt", [NSString stringWithFormat:@"%d", code]];
-    session.task.standardInput = pipe;
-    check([session.task launchAndReturnError:nil], "simulated helper starts");
-    session.launched = YES;
+    char *args[] = {"/bin/sh", "-c", manual ? "cat >/dev/null; exit \"$1\"" : "exit \"$1\"",
+                    "receipt", (char *)[NSString stringWithFormat:@"%d", code].UTF8String, NULL};
+    check([session launch:args], "simulated helper starts");
     controller.session = session;
     controller.paid = YES;
     controller.opened = YES;
     if (manual) [controller stop:nil];
     else {
-        [session.task waitUntilExit];
+        check([session waitForExit:3], "simulated helper reaches expiry");
         [controller check:nil];
     }
     NSTimeInterval end = NSProcessInfo.processInfo.systemUptime + 3;
@@ -125,6 +119,18 @@ int main(void) {
             checkExit(controller, 22, manual, @"Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.");
             checkExit(controller, 0, manual, @"Local audio stopped. OpenAI closure is unconfirmed. Check usage in your OpenAI account.");
         }
+        Session *hung = [Session new];
+        Session *other = [Session new];
+        char *sleeper[] = {"/bin/sleep", "60", NULL};
+        check(hung.paidShutdownReceipt == NoProviderWork, "never launched has no admission");
+        check([hung launch:sleeper] && [other launch:sleeper], "two independent test children");
+        NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+        check([hung stopWithGrace:0.1], "hung child was retired");
+        check(NSProcessInfo.processInfo.systemUptime - started < 3 && hung.paidShutdownReceipt == ClosureUnconfirmed,
+              "timed-out helper reports uncertain closure within the bound");
+        check(other.running, "a different session stays alive");
+        check([other stopWithGrace:0], "independent test child reaped");
+
         [controller.window orderOut:nil];
         puts("Verified native billing labels, estimate changes, keyboard defaults, invalid approval and Cancel, then simulated manual and natural shutdown receipts.");
     }

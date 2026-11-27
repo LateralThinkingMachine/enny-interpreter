@@ -198,9 +198,11 @@ def _read_health(process, deadline, *, origin=None):
     return state
 
 
-def wait_ready(process, directory, timeout=15, *, providers_enabled=False, origin=None):
+def wait_ready(process, directory, timeout=15, *, providers_enabled=False, origin=None, stop_requested=None):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if stop_requested is not None and stop_requested():
+            return
         if process.poll() is not None:
             raise RuntimeError('Pilot process failed before readiness; inspect its private log')
         if (directory / 'credentials.json').exists():

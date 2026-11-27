@@ -2,6 +2,8 @@
 #import <arpa/inet.h>
 #import <fcntl.h>
 #import <signal.h>
+#import <spawn.h>
+#import <sys/wait.h>
 #import <sys/stat.h>
 #import <unistd.h>
 
@@ -68,18 +70,65 @@ static NSString *paidShutdownMessage(int receipt) {
 }
 
 @interface Session : NSObject
-@property (strong) NSTask *task;
+@property pid_t child;
+@property int exitCode;
+@property BOOL forcedStop;
+@property (readonly) BOOL running;
 @property BOOL checking;
 @property BOOL launched;
 @property (strong) NSFileHandle *writer;
 @property (copy) NSString *directory;
 @property (nonatomic, copy) NSURL *entry;
 - (BOOL)startWithKey:(NSString *)key minutes:(NSInteger)minutes budgetCents:(NSInteger)cents;
-- (void)stop;
+- (BOOL)stop;
 - (int)paidShutdownReceipt;
 @end
 
 @implementation Session
+// This session alone waits for its child. Even an exited child retains its PID
+// until waitpid reaps it. The timeout path can therefore signal only this child.
+- (BOOL)launch:(char *const *)args {
+    NSPipe *pipe = [NSPipe pipe];
+    posix_spawn_file_actions_t files;
+    posix_spawnattr_t attributes;
+    if (posix_spawn_file_actions_init(&files)) return NO;
+    if (posix_spawnattr_init(&attributes)) {
+        posix_spawn_file_actions_destroy(&files);
+        return NO;
+    }
+    char *env[] = {"PATH=/usr/bin:/bin", "LANG=C", NULL};
+    pid_t child = 0;
+    BOOL ok = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT) == 0 &&
+        posix_spawn_file_actions_adddup2(&files, pipe.fileHandleForReading.fileDescriptor, STDIN_FILENO) == 0 &&
+        posix_spawn_file_actions_addopen(&files, STDOUT_FILENO, "/dev/null", O_WRONLY, 0) == 0 &&
+        (self.checking ? posix_spawn_file_actions_addinherit_np(&files, STDERR_FILENO)
+                       : posix_spawn_file_actions_addopen(&files, STDERR_FILENO, "/dev/null", O_WRONLY, 0)) == 0 &&
+        (!self.directory || posix_spawn_file_actions_addchdir_np(&files, self.directory.fileSystemRepresentation) == 0) &&
+        posix_spawn(&child, args[0], &files, &attributes, args, env) == 0;
+    posix_spawnattr_destroy(&attributes);
+    posix_spawn_file_actions_destroy(&files);
+    if (ok) {
+        self.child = child;
+        self.exitCode = -1;
+        self.launched = YES;
+        self.writer = pipe.fileHandleForWriting;
+    }
+    return ok;
+}
+
+- (BOOL)running {
+    @synchronized(self) {
+        if (!self.child) return NO;
+        int status = 0;
+        pid_t result;
+        do { result = waitpid(self.child, &status, WNOHANG); } while (result < 0 && errno == EINTR);
+        if (result == 0) return YES;
+        self.exitCode = result == self.child && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        self.child = 0;
+        return NO;
+    }
+}
+
 - (BOOL)startWithKey:(NSString *)key minutes:(NSInteger)minutes budgetCents:(NSInteger)cents {
     NSURL *resources = NSBundle.mainBundle.resourceURL;
     NSString *assets = physicalPath([resources URLByAppendingPathComponent:@"web"].path);
@@ -108,19 +157,9 @@ static NSString *paidShutdownMessage(int receipt) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:config options:0 error:nil];
     if (!data || data.length > 16384) return NO;
 
-    NSPipe *pipe = [NSPipe pipe];
-    self.writer = pipe.fileHandleForWriting;
-    self.task = [[NSTask alloc] init];
-    self.task.executableURL = [NSBundle.mainBundle.bundleURL URLByAppendingPathComponent:
-                               @"Contents/Helpers/meeting-call-pilot"];
-    self.task.arguments = @[@"--desktop-pipe"];
-    self.task.environment = @{@"PATH": @"/usr/bin:/bin", @"LANG": @"C"};
-    self.task.currentDirectoryURL = [NSURL fileURLWithPath:self.directory isDirectory:YES];
-    self.task.standardInput = pipe;
-    self.task.standardOutput = NSFileHandle.fileHandleWithNullDevice;
-    self.task.standardError = self.checking ? NSFileHandle.fileHandleWithStandardError : NSFileHandle.fileHandleWithNullDevice;
-    if (![self.task launchAndReturnError:nil]) return NO;
-    self.launched = YES;
+    NSURL *helper = [NSBundle.mainBundle.bundleURL URLByAppendingPathComponent:@"Contents/Helpers/meeting-call-pilot"];
+    char *args[] = {(char *)helper.fileSystemRepresentation, "--desktop-pipe", NULL};
+    if (![self launch:args]) return NO;
     uint32_t length = htonl((uint32_t)data.length);
     return [self.writer writeData:[NSData dataWithBytes:&length length:sizeof(length)] error:nil]
         && [self.writer writeData:data error:nil];
@@ -130,7 +169,7 @@ static NSString *paidShutdownMessage(int receipt) {
 // Consume it once and pass the fragment directly to Chrome via LaunchServices.
 - (NSURL *)entry {
     if (_entry) return _entry;
-    if (!self.task.running) return nil;
+    if (!self.running) return nil;
     NSString *path = [self.directory stringByAppendingPathComponent:@"credentials.json"];
     int fd = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (fd == -1) return nil;
@@ -148,30 +187,46 @@ static NSString *paidShutdownMessage(int receipt) {
     NSCharacterSet *invalid = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet];
     if (![ticket isKindOfClass:NSString.class] || ticket.length != 64 ||
         [ticket rangeOfCharacterFromSet:invalid].location != NSNotFound) return nil;
-    if (unlink(path.fileSystemRepresentation) != 0 || !self.task.running) return nil;
+    if (unlink(path.fileSystemRepresentation) != 0 || !self.running) return nil;
     _entry = [NSURL URLWithString:[NSString stringWithFormat:@"%@/#bootstrap=%@", origin, ticket]];
     return _entry;
 }
 
 - (int)paidShutdownReceipt {
     if (!self.launched) return NoProviderWork;
-    if (self.task.running || self.task.terminationReason != NSTaskTerminationReasonExit) return ClosureUnconfirmed;
-    int code = self.task.terminationStatus;
+    if (self.running || self.forcedStop) return ClosureUnconfirmed;
+    int code = self.exitCode;
     return (code == NoProviderWork || code == AllConnectionsClosed) ? code : ClosureUnconfirmed;
 }
 
-- (void)stop {
+- (BOOL)waitForExit:(NSTimeInterval)seconds {
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + seconds;
+    while (self.running && NSProcessInfo.processInfo.systemUptime < deadline)
+        [NSThread sleepForTimeInterval:0.05];
+    return !self.running;
+}
+
+- (BOOL)stop { return [self stopWithGrace:38]; }
+
+- (BOOL)stopWithGrace:(NSTimeInterval)grace {
     [self.writer closeAndReturnError:nil];
     self.writer = nil;
-    // Closing the parent pipe requests graceful provider teardown. The backend
-    // bounds this at 32 seconds plus three seconds for listener retirement.
-    if (self.task.running) [self.task waitUntilExit];
+    if (![self waitForExit:self.forcedStop ? 0 : grace]) {
+        @synchronized(self) {
+            if (self.running) {
+                self.forcedStop = YES;
+                kill(self.child, SIGKILL);
+            }
+        }
+        if (![self waitForExit:2]) return NO;
+    }
     if (self.directory) {
         unlink([self.directory stringByAppendingPathComponent:@"credentials.json"].fileSystemRepresentation);
         rmdir(self.directory.fileSystemRepresentation);
     }
     self.directory = nil;
     self.entry = nil;
+    return YES;
 }
 @end
 
@@ -333,7 +388,7 @@ static NSString *paidShutdownMessage(int receipt) {
     self.timer = [NSTimer scheduledTimerWithTimeInterval:0.15 target:self selector:@selector(check:) userInfo:nil repeats:YES];
 }
 - (void)check:(NSTimer *)timer {
-    if (!self.session.task.running) {
+    if (!self.session.running) {
         [self finish:self.opened ? @"The session ended." : @"Startup failed. Check that loopback ports 5180 and 5182 are available."];
         return;
     }
@@ -367,8 +422,20 @@ static NSString *paidShutdownMessage(int receipt) {
     self.status.stringValue = @"Closing the session…";
     Session *closing = self.session;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        [closing stop];
+        BOOL closed = [closing stop];
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (!closed) {
+                self.stopping = NO;
+                self.end.enabled = YES;
+                self.status.stringValue = self.paid
+                    ? @"Local shutdown is unconfirmed. Try Stop session again. Check usage in your OpenAI account."
+                    : @"Local shutdown is unconfirmed. Try Stop session again.";
+                if (self.quitting) {
+                    self.quitting = NO;
+                    [NSApp replyToApplicationShouldTerminate:NO];
+                }
+                return;
+            }
             self.session = nil;
             self.stopping = NO;
             self.practice.enabled = self.live.enabled = YES;
@@ -423,7 +490,7 @@ int main(int argc, const char **argv) {
             BOOL ready = NO;
             NSString *key = (liveCheck || expiryCheck) ? @"fictional-key-never-transmitted" : nil;
             if ([check startWithKey:key minutes:minutes budgetCents:cents]) {
-                for (unsigned i = 0; i < 150 && check.task.running; i++) {
+                for (unsigned i = 0; i < 150 && check.running; i++) {
                     if (check.entry) { ready = YES; break; }
                     [NSThread sleepForTimeInterval:0.1];
                 }
@@ -432,17 +499,20 @@ int main(int argc, const char **argv) {
                 // Leave the pipe open through the one-minute meeting window and bootstrap grace.
                 // The check supplies only an inert key and never opens a browser or audio route.
                 NSTimeInterval limit = NSProcessInfo.processInfo.systemUptime + 220;
-                while (check.task.running && NSProcessInfo.processInfo.systemUptime < limit)
+                while (check.running && NSProcessInfo.processInfo.systemUptime < limit)
                     [NSThread sleepForTimeInterval:0.1];
-                ready = !check.task.running;
+                ready = !check.running;
             }
-            [check stop];
+            if (![check stop]) {
+                fputs("Local shutdown is unconfirmed.\n", stderr);
+                return 1;
+            }
             if (key) {
                 int receipt = check.paidShutdownReceipt;
                 puts(paidShutdownMessage(receipt).UTF8String);
                 ready = ready && receipt == NoProviderWork;
             } else {
-                ready = ready && check.task.terminationReason == NSTaskTerminationReasonExit && check.task.terminationStatus == 0;
+                ready = ready && check.launched && !check.forcedStop && check.exitCode == 0;
             }
             puts(ready ? "Packaged session started and stopped." : "Packaged session check failed.");
             return ready ? 0 : 1;
