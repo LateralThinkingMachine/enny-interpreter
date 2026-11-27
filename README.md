@@ -7,7 +7,9 @@ This preview is a personal interpreter for a browser meeting. One listener runs 
 | **Try a sample** or **Start free rehearsal** | US$0. No account, card or API key. The sample works offline. |
 | **Start live interpretation · billed by your own OpenAI account** | Get everyone’s consent. Set the session length and local cost limit. Review the estimate before confirming. When a live connection opens, OpenAI can bill the key owner, including during silence. Entering a key is free. Enny charges no fee. |
 
-**Start here.** Download `meeting-interpreter.html`, open it in desktop Chrome, and select **Try a sample**. For spoken interpretation, use the desktop listener. Its one-hour local estimate for one listener is US$4.02. Your provider sets the final bill. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5) · [Browser file](standalone/meeting-interpreter.html) · [Illustrated setup guide](docs/get-started-with-enny.md)
+**Start here.** To try the free sample, download the browser file. Open it in desktop Chrome and select **Try a sample**. For spoken interpretation, download the desktop listener for your computer. Its one-hour local estimate for one listener is US$4.02. Your provider sets the final bill.
+
+[Browser file](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/meeting-interpreter.html) · [Mac (Apple Silicon)](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-macos-arm64.zip) · [Linux (Intel or AMD 64-bit)](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-linux-amd64.tar.gz) · [Linux (ARM64)](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-linux-arm64.tar.gz) · [SHA256SUMS](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/SHA256SUMS) · [Illustrated setup guide](docs/get-started-with-enny.md)
 
 See what comes after the personal listener, including a free sound check with a meeting attendee. [Enny development roadmap](ROADMAP.md)
 
@@ -74,7 +76,7 @@ To explore the two dates now, open **Explore a fictional shipment correction** i
 
 The full app uses a local Rust service. Its interpreter and listener interfaces use Rust/UI components and Leptos compiled to WebAssembly. The browser handles tab selection and audio playback. The HTML edition embeds its Rust/WASM interface in a single file. [Platform and provider support](docs/interpretation-quality.md#provider-and-platform-support) · [UI component sources](apps/interpreter-ui/src/components/UPSTREAM.md)
 
-The desktop preview supports Apple Silicon Macs on macOS 14 or later, and Linux on x86-64 or ARM64. Download an archive and its checksum manifest from the same release. [Desktop preview and checksums](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5) · [How to verify your download](SECURITY.md#verify-a-release-download)
+The desktop preview supports Apple Silicon Macs on macOS 14 or later, and Linux on x86-64 or ARM64. [Choose your download](docs/get-started-with-enny.md#1-get-the-app) · [Verify your download](SECURITY.md#verify-a-release-download)
 
 ## Build the full app from source
 

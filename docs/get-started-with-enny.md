@@ -11,13 +11,13 @@ Get everyone’s consent before live use. Approve the time and cost for each mee
 
 ## 1. Get the app
 
-Open the preview release. Download the file for your computer from the table below. Download `SHA256SUMS` from the same release. Check your file before opening it. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5) · [Check a download](../SECURITY.md#verify-a-release-download)
+Select the file for your computer. Download the checksum file. Check your download before opening it. [Download SHA256SUMS](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/SHA256SUMS) · [Check your download](../SECURITY.md#verify-a-release-download)
 
 | Your computer | File to get |
 | --- | --- |
-| Mac with an Apple chip and macOS 14 or later | `real-time-interpreter-macos-arm64.zip` |
-| Linux PC with an Intel or AMD 64-bit processor | `real-time-interpreter-linux-amd64.tar.gz` |
-| Linux computer with a 64-bit ARM processor | `real-time-interpreter-linux-arm64.tar.gz` |
+| Mac with an Apple chip and macOS 14 or later | [Download the Mac ZIP](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-macos-arm64.zip) |
+| Linux PC with an Intel or AMD 64-bit processor | [Download the Linux x86-64 archive](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-linux-amd64.tar.gz) |
+| Linux computer with a 64-bit ARM processor | [Download the Linux ARM64 archive](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/real-time-interpreter-linux-arm64.tar.gz) |
 
 On a Mac, **About This Mac** shows the chip and macOS version. The Enny window shows the installed build number. This preview is build 5. Linux requires Python 3.10 or later, glibc 2.36 or later, and system CA certificates.
 
@@ -29,7 +29,7 @@ On a Mac, **About This Mac** shows the chip and macOS version. The Enny window s
 4. On a Mac, open the app in the extracted folder. The window shows **Enny**.
 5. On Linux, open a terminal in the extracted folder.
 
-If macOS blocks the app, use the browser edition for a text sample. Open the HTML file on GitHub. Select **Download raw file**. Open the saved file in desktop Chrome. Select **Try a sample**. The sample opens beside your captions. Select **Close sample** to hide it. [Browser file](../standalone/meeting-interpreter.html)
+If macOS blocks the app, download the browser file for a text sample. Open the saved file in desktop Chrome. Select **Try a sample**. The sample opens beside your captions. Select **Close sample** to hide it. [Download the browser file](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/meeting-interpreter.html)
 
 **Optional sound check**
 

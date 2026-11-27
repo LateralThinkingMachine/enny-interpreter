@@ -13,4 +13,7 @@ Sign in to GitHub and use Enny’s private reporting form. It goes to the mainta
 
 ## Verify a release download
 
-Get the asset and `SHA256SUMS` from the same release. On macOS, run `shasum -a 256 FILENAME`. On Linux, run `sha256sum FILENAME`. Substitute the name of your downloaded file. Compare the output to its entry in the manifest. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5)
+1. Download your file and the matching checksum list. [Preview 5 files](docs/get-started-with-enny.md#1-get-the-app) · [Preview 5 SHA256SUMS](https://github.com/LateralThinkingMachine/enny-interpreter/releases/download/v0.1.0-preview.5/SHA256SUMS)
+2. Open a terminal in the folder that contains the download.
+3. On macOS, run `shasum -a 256 FILENAME`. On Linux, run `sha256sum FILENAME`. Replace `FILENAME` with the name of your file.
+4. Open `SHA256SUMS`. Find the line with that filename. Use the download only if the two hashes match.
