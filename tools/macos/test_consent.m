@@ -76,16 +76,26 @@ int main(void) {
         check(controller.startCount == 1 && !controller.hadKey && controller.acceptedBudget == 0 && controller.acceptedMinutes == 10, "free action launches zero-budget rehearsal");
         NSNotification *change = [NSNotification notificationWithName:NSControlTextDidChangeNotification object:nil];
         __block int step = 0;
+        __block NSTimeInterval keyboardDeadline = 0;
         NSTimer *inspect = [NSTimer timerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *timer) {
             NSWindow *dialog = [app modalWindow];
             if (!dialog) return;
             [dialog.contentView layoutSubtreeIfNeeded];
             NSButton *cancel = findButton(dialog.contentView, @"Cancel");
             NSButton *approve = findButton(dialog.contentView, @"Approve and open");
+            if (![cancel.keyEquivalent isEqualToString:@"\r"] || dialog.defaultButtonCell != cancel.cell) {
+                // AppKit may expose the modal before its key equivalents are installed.
+                if (!keyboardDeadline) {
+                    keyboardDeadline = NSProcessInfo.processInfo.systemUptime + 3;
+                    [dialog makeKeyAndOrderFront:nil];
+                }
+                if (NSProcessInfo.processInfo.systemUptime < keyboardDeadline) return;
+            }
+            check(cancel && approve, "separate confirm and cancel");
+            check(dialog.defaultButtonCell == cancel.cell && [cancel.keyEquivalent isEqualToString:@"\r"] && !approve.keyEquivalent.length,
+                  "Return defaults to Cancel in paid dialog");
+            keyboardDeadline = 0;
             if (step++ == 0) {
-                check(cancel && approve, "separate confirm and cancel");
-                check(dialog.defaultButtonCell == cancel.cell && [cancel.keyEquivalent isEqualToString:@"\r"],
-                      "Return defaults to Cancel in paid dialog");
                 check(visibleText(dialog.contentView, @"Opening the operator tab costs US$0."), "operator open is free");
                 check(visibleText(dialog.contentView, @"OpenAI can charge the account that owns your API key"), "payer and billing trigger in accessible dialog text");
                 check(visibleText(dialog.contentView, @"Enny charges no fee."), "Enny fee disclosed");
@@ -107,7 +117,10 @@ int main(void) {
                 [controller controlTextDidChange:change];
                 check([controller.estimateLabel.stringValue isEqualToString:@"Enter a whole number of minutes from 1 to 60."], "excess duration is refused");
                 [timer invalidate];
-                [cancel performClick:nil];
+                NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                    modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:dialog.windowNumber
+                    context:nil characters:@"\r" charactersIgnoringModifiers:@"\r" isARepeat:NO keyCode:36];
+                check([dialog performKeyEquivalent:key], "AppKit dispatches Return to the default Cancel action");
             }
         }];
         [[NSRunLoop currentRunLoop] addTimer:inspect forMode:NSModalPanelRunLoopMode];
