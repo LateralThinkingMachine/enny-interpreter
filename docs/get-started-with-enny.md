@@ -2,7 +2,7 @@
 
 This download is for the person who wants to hear interpretation in headphones.
 
-- **For everyone in the meeting:** The invited agent is a separate private test build. One organizer installs and configures it once. Once someone has joined the meeting, the organizer opens its link in the agent browser and admits **Enny**. Everyone else joins the usual meeting. They need no download, account, key, or card for Enny. The agent uses one output language for the room. Live testing is available on self-hosted Jitsi. Google Meet and Zoom allow a free room check. The room check has no Enny or OpenAI fee. Other meeting or hosting fees can apply. Playback on attendee devices still needs verification.
+- **For everyone in the meeting:** The invited agent is a separate private test build. One organizer installs and configures it once. Once someone has joined the meeting, the organizer opens its link in the agent browser and admits **Enny**. Everyone else joins the usual meeting. They need no download, account, key, or card for Enny. The agent uses one output language for the room. Live testing is available on self-hosted Jitsi. Google Meet and Zoom allow a free room check. The room check has no Enny or OpenAI fee. Other meeting or hosting fees can apply.
 - **For one listener:** Use the desktop preview and the steps below. Only the listener installs Enny. The listener hears the interpretation in headphones. Everyone else hears the original call.
 
 Get everyone’s consent before live use. Approve the time and cost for each meeting. The key owner pays OpenAI when a live provider connection opens.
@@ -29,7 +29,7 @@ On a Mac, **About This Mac** shows the chip and macOS version. The Enny window s
 4. On a Mac, open the app in the extracted folder. The window shows **Enny**.
 5. On Linux, open a terminal in the extracted folder.
 
-If macOS blocks the app, use the browser edition for a text sample. Open the HTML file on GitHub. Select **Download raw file**. Open the saved file in desktop Chrome. Select **Try a sample**. [Browser file](../standalone/meeting-interpreter.html)
+If macOS blocks the app, use the browser edition for a text sample. Open the HTML file on GitHub. Select **Download raw file**. Open the saved file in desktop Chrome. Select **Try a sample**. The sample opens beside your captions. Select **Close sample** to hide it. [Browser file](../standalone/meeting-interpreter.html)
 
 **Optional sound check**
 
