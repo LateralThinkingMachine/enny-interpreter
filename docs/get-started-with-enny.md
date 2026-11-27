@@ -11,7 +11,7 @@ Get everyone’s consent before live use. Approve the time and cost for each mee
 
 ## 1. Get the app
 
-Open the preview release. Download the file for your computer from the table below. Download `SHA256SUMS` from the same release. Check your file before opening it. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.4) · [Check a download](../SECURITY.md#verify-a-release-download)
+Open the preview release. Download the file for your computer from the table below. Download `SHA256SUMS` from the same release. Check your file before opening it. [Preview downloads](https://github.com/LateralThinkingMachine/enny-interpreter/releases/tag/v0.1.0-preview.5) · [Check a download](../SECURITY.md#verify-a-release-download)
 
 | Your computer | File to get |
 | --- | --- |
@@ -19,7 +19,7 @@ Open the preview release. Download the file for your computer from the table bel
 | Linux PC with an Intel or AMD 64-bit processor | `real-time-interpreter-linux-amd64.tar.gz` |
 | Linux computer with a 64-bit ARM processor | `real-time-interpreter-linux-arm64.tar.gz` |
 
-On a Mac, **About This Mac** shows the chip and macOS version. The Enny window shows the installed build number. This preview is build 4. Linux requires Python 3.10 or later, glibc 2.36 or later, and system CA certificates.
+On a Mac, **About This Mac** shows the chip and macOS version. The Enny window shows the installed build number. This preview is build 5. Linux requires Python 3.10 or later, glibc 2.36 or later, and system CA certificates.
 
 ## 2. Open the app
 

@@ -8,7 +8,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTICE_PREFIXES = ("license", "licence", "copying", "notice", "copyright", "patents")
-SOURCE_TAG = "https://github.com/LateralThinkingMachine/enny-interpreter/blob/v0.1.0-preview.4"
+SOURCE_TAG = "https://github.com/LateralThinkingMachine/enny-interpreter/blob/v0.1.0-preview.5"
 
 
 def write_desktop_notice_index(package):
