@@ -29,10 +29,12 @@ def check_download(chromium, html, *, with_models):
         expect(page.locator('[data-name="Card"]')).to_have_count(2)
         expect(page.locator("#to")).to_have_value("es")
         page.get_by_role("button", name="Try a sample").click()
-        expect(page.locator("#entries li")).to_have_count(2)
-        expect(page.locator("#kind")).to_contain_text("Prewritten sample")
-        page.get_by_role("button", name="Clear transcript").click()
+        expect(page.locator("#sample-caption-pairs")).to_be_visible()
+        expect(page.locator("#sample-caption-pairs li")).to_have_count(2)
         expect(page.locator("#entries li")).to_have_count(0)
+        expect(page.get_by_role("button", name="Clear transcript")).to_be_disabled()
+        page.get_by_role("button", name="Close sample").click()
+        expect(page.locator("#sample-caption-pairs")).to_be_hidden()
         if with_models:
             page.locator("#mode").select_option("text")
             page.get_by_role("button", name="Prepare translation").click()
@@ -46,7 +48,7 @@ def check_download(chromium, html, *, with_models):
             print("English → Spanish:", translated.inner_text())
         assert not errors, errors
         assert not [url for url in requests if url.startswith(("http:", "https:"))]
-        print(f"Chrome {browser.version}: file-open sample and clearing passed.")
+        print(f"Chrome {browser.version}: file-open sample and dismissal passed.")
     finally:
         browser.close()
 
@@ -60,7 +62,8 @@ def check_missing_track_support(chromium, html):
         expect(page.locator("#status")).to_contain_text("unavailable")
         expect(page.locator("#start")).to_be_disabled()
         page.get_by_role("button", name="Try a sample").click()
-        expect(page.locator("#entries li")).to_have_count(2)
+        expect(page.locator("#sample-caption-pairs")).to_be_visible()
+        expect(page.locator("#entries li")).to_have_count(0)
     finally:
         browser.close()
 
@@ -108,6 +111,64 @@ def exercise_shipment_history(page, private_text=None):
     assert page.evaluate("async () => [localStorage.length, sessionStorage.length, (await indexedDB.databases()).length]") == [0, 0, 0]
 
 
+def exercise_sample_with_captions(page, first):
+    entries = page.locator("#entries li .original")
+    sample = page.locator("#sample-caption-pairs")
+    button = page.locator("#sample")
+    clear = page.get_by_role("button", name="Clear transcript")
+    translate = page.get_by_role("button", name="Translate text")
+    text_input = page.get_by_label("Text to translate")
+
+    # Reach the transcript limit through the real text input and browser adapter.
+    for number in range(1, 100):
+        text_input.fill(f"line {number}")
+        translate.click()
+    expected = [first] + [f"line {number}" for number in range(1, 100)]
+    expect(entries).to_have_text(expected)
+    before = page.evaluate("window.modelCalls.slice()")
+    for _ in range(2):
+        button.click()
+        expect(button).to_have_attribute("aria-expanded", "true")
+        expect(sample).to_be_visible()
+        expect(sample.locator(".translation")).to_have_text(["¿Me oyen todos?", "Sí, podemos empezar."])
+        expect(entries.first).to_be_visible()
+        expect(entries).to_have_text(expected)
+        expect(text_input).to_have_value("line 99")
+        button.click()
+        expect(button).to_have_attribute("aria-expanded", "false")
+        expect(sample).to_be_hidden()
+    assert page.evaluate("window.modelCalls.slice()") == before
+
+    # The next genuine row evicts precisely the oldest genuine row.
+    button.click()
+    text_input.fill("line 100")
+    translate.click()
+    expect(sample).to_be_hidden()
+    expect(entries).to_have_text(expected[1:] + ["line 100"])
+    button.click()
+    clear.click()
+    expect(entries).to_have_count(0)
+    expect(sample).to_be_visible()
+    expect(clear).to_be_disabled()
+
+    text_input.fill(first)
+    page.evaluate("window.holdTranslation = true")
+    translate.click()
+    expect(sample).to_be_hidden()
+    button.click()
+    page.wait_for_function("typeof window.releaseTranslation === 'function'")
+    page.evaluate("window.releaseTranslation()")
+    expect(entries).to_have_text([first])
+    expect(sample).to_be_visible()
+    page.evaluate('window.dispatchEvent(new PageTransitionEvent("pagehide", {persisted: true}))')
+    expect(entries).to_have_count(0)
+    expect(text_input).to_have_value("")
+    expect(sample).to_be_hidden()
+    page.evaluate('window.dispatchEvent(new PageTransitionEvent("pageshow", {persisted: true}))')
+    expect(entries).to_have_count(0)
+    expect(sample).to_be_hidden()
+
+
 def check_offline_runtime(chromium, html):
     """Exercise the downloaded WASM UI with a deterministic, local browser-model double."""
     browser = chromium.launch(channel="chrome", headless=True)
@@ -119,7 +180,11 @@ def check_offline_runtime(chromium, html):
           availability: async () => { window.modelCalls.push("availability"); return "available"; },
           create: async () => {
             window.modelCalls.push("create");
-            return {translate: async text => { window.modelCalls.push("translate"); return "local · " + text; }, destroy() {}};
+            return {translate: async text => {
+              window.modelCalls.push("translate");
+              if (window.holdTranslation) await new Promise(resolve => { window.releaseTranslation = resolve; });
+              return "local · " + text;
+            }, destroy() {}};
           }
         }});
         for (const name of ["getUserMedia", "getDisplayMedia"]) {
@@ -147,6 +212,8 @@ def check_offline_runtime(chromium, html):
         expect(page.locator("#entries li")).to_have_count(1)
         expect(page.locator("#entries .translation")).to_have_text("local · " + value)
         expect(page.locator("#message")).to_have_value(value)
+        exercise_sample_with_captions(page, value)
+        page.get_by_role("button", name="Prepare translation").click()
         page.get_by_role("button", name="Stop", exact=True).click()
         expect(page.locator("#start")).to_be_disabled()
         page.locator("#to").select_option("en")
@@ -163,7 +230,7 @@ def check_offline_runtime(chromium, html):
         blocked.goto(html.as_uri())
         expect(blocked.locator("#load-status")).to_contain_text("Enable WebAssembly")
         expect(blocked.get_by_role("button", name="Start captions")).to_have_count(0)
-        print("Offline WASM history, keyboard navigation, private transcript isolation, typed translation, reset and runtime fallback passed.")
+        print("Offline WASM history, keyboard navigation, caption preservation at capacity, clearing, page restore and runtime fallback passed.")
     finally:
         browser.close()
 

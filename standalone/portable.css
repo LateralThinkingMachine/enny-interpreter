@@ -92,9 +92,9 @@ details { margin: 1.1rem 0 0; }
 summary { cursor: pointer; font-weight: 600; }
 details p { margin-top: .4rem; }
 .output { min-height: 17rem; }
-#entries { list-style: none; padding: 0; margin: 1rem 0 0; }
+.caption-pairs { list-style: none; padding: 0; margin: 1rem 0 0; }
 
-#entries li {
+.caption-pairs li {
   border-top: 1px solid var(--line);
   padding: .8rem 0;
   overflow-wrap: anywhere;

@@ -37,7 +37,7 @@ struct Screen {
     prepare_label: RwSignal<String>,
     text: RwSignal<String>,
     consent: RwSignal<bool>,
-    sample: RwSignal<bool>,
+    sample_open: RwSignal<bool>,
     captions: RwSignal<Vec<Caption>>,
     next_id: RwSignal<u64>,
 }
@@ -53,19 +53,19 @@ impl Screen {
             prepare_label: RwSignal::new("Prepare translation".into()),
             text: RwSignal::new(String::new()),
             consent: RwSignal::new(false),
-            sample: RwSignal::new(false),
+            sample_open: RwSignal::new(false),
             captions: RwSignal::new(Vec::new()),
             next_id: RwSignal::new(0),
         }
     }
 
-    fn clear(self) {
+    fn reset_transcript(self) {
         self.captions.update(Vec::clear);
-        self.sample.set(false);
+        self.sample_open.set(false);
     }
 
     fn check(self) {
-        self.clear();
+        self.reset_transcript();
         self.consent.set(false);
         check_languages(
             &self.mode.get_untracked(),
@@ -91,17 +91,6 @@ impl Screen {
         });
     }
 
-    fn show_sample(self) {
-        self.clear();
-        self.sample.set(true);
-        for (source, translated) in [
-            ("Can everyone hear me?", "¿Me oyen todos?"),
-            ("Yes, we can begin.", "Sí, podemos empezar."),
-        ] {
-            self.append(source.into(), translated.into(), "en".into(), "es".into());
-        }
-    }
-
     fn connect(self) {
         let state =
             Closure::<dyn Fn(String, String, String)>::new(move |phase: String, message, label| {
@@ -113,9 +102,6 @@ impl Screen {
                 self.prepare_label.set(label);
             });
         let line = Closure::<dyn Fn(String, String)>::new(move |source, translated| {
-            if self.sample.get_untracked() {
-                self.clear();
-            }
             self.append(
                 source,
                 translated,
@@ -124,7 +110,7 @@ impl Screen {
             );
         });
         let hide = Closure::<dyn Fn()>::new(move || {
-            self.clear();
+            self.reset_transcript();
             self.text.set(String::new());
             self.consent.set(false);
         });
@@ -211,7 +197,7 @@ fn Setup(screen: Screen) -> impl IntoView {
                         <Button class="primary".to_owned() attr:id="start"
                             attr:disabled=move || screen.phase.get() != "ready" || (!is_text() && !screen.consent.get())
                             on:click=move |_| {
-                                if screen.sample.get_untracked() { screen.clear(); }
+                                screen.sample_open.set(false);
                                 start(&screen.text.get_untracked(), screen.consent.get_untracked());
                             }>
                             {move || if is_text() { "Translate text" } else { "Start captions" }}
@@ -236,18 +222,31 @@ fn Transcript(screen: Screen) -> impl IntoView {
             <section class="output" aria-labelledby="output">
                 <CardHeader><div class="sectionhead">
                     <h2 id="output">"Transcript"</h2>
-                    <Button attr:id="sample" attr:disabled=move || matches!(screen.phase.get().as_str(), "preparing" | "typing" | "selecting" | "live" | "finishing") on:click=move |_| screen.show_sample()>"Try a sample"</Button>
+                    <Button attr:id="sample" attr:aria-controls="sample-caption-pairs"
+                        attr:aria-expanded=move || screen.sample_open.get().to_string()
+                        on:click=move |_| screen.sample_open.update(|open| *open = !*open)>
+                        {move || if screen.sample_open.get() { "Close sample" } else { "Try a sample" }}
+                    </Button>
                 </div></CardHeader>
                 <CardContent>
-                    <p class="note" id="kind">{move || if screen.sample.get() { "Prewritten sample · English → Spanish" } else { "Source text appears above each translation." }}</p>
+                    <div id="sample-caption-pairs" hidden=move || !screen.sample_open.get()>
+                        <h3>"Prewritten sample · English → Spanish"</h3>
+                        <ol class="caption-pairs">
+                            <li><p class="original" lang="en">"Can everyone hear me?"</p>
+                                <p class="translation" lang="es">"¿Me oyen todos?"</p></li>
+                            <li><p class="original" lang="en">"Yes, we can begin."</p>
+                                <p class="translation" lang="es">"Sí, podemos empezar."</p></li>
+                        </ol>
+                    </div>
+                    <p class="note">"Source text appears above each translation."</p>
                     <p id="empty" hidden=move || !empty()>"Your translated lines will appear here."</p>
-                    <ol id="entries" aria-live="polite" aria-relevant="additions">
+                    <ol id="entries" class="caption-pairs" aria-label="Transcript" aria-live="polite" aria-relevant="additions">
                         <For each=move || screen.captions.get() key=|line| line.id children=move |line| view! {
                             <li><p class="original" lang=line.from>{line.source}</p>
                                 <p class="translation" lang=line.to>{line.translated}</p></li>
                         }/>
                     </ol>
-                    <div class="actions"><Button attr:id="clear" attr:disabled=empty on:click=move |_| screen.clear()>"Clear transcript"</Button></div>
+                    <div class="actions"><Button attr:id="clear" attr:disabled=empty on:click=move |_| screen.captions.update(Vec::clear)>"Clear transcript"</Button></div>
                 </CardContent>
             </section>
         </Card>
